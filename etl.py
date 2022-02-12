@@ -4,7 +4,7 @@ import pandas as pd
 import re
 from datetime import datetime, timedelta
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import udf, year, month, dayofmonth, hour, weekofyear, date_format, upper
+from pyspark.sql.functions import udf, year, month, dayofmonth, hour, weekofyear, date_format, upper, avg, count, desc, round
 
 config = configparser.ConfigParser()
 config.read('project.cfg')
@@ -440,7 +440,78 @@ def check_row_count(spark, table_name):
     else:
         print("Succesfull quality check on table {}. The table has {} records.".format(table_name, rec_count))
         
-        
+
+
+def get_top_10_warmest_states(spark, fact_visit_table, dim_port_table):
+    """
+    This function:
+        Get average temperature in top 10 states ordered by number od arrivals descending
+    Paramters:
+        spark (object) - Spark session
+        fact_visit_table (string) - fact table containing visits
+        dim_port_table (string) - dimension table containing US ports
+    """
+    
+    print('\nGet average temperature in top 10 states ordered by number od arrivals descending\n')
+    
+    #load necessary data
+    df_read_visits = spark.read.parquet(os.path.join(output_data, fact_visit_table))
+    df_read_ports = spark.read.parquet(os.path.join(output_data, dim_port_table))
+    
+    #join dataframe by port code
+    df_query = df_read_visits.join(df_read_ports, df_read_visits.i94port == df_read_ports.code, how='inner').drop(df_read_ports.code)
+    
+    #get top 10 desc
+    df_query.groupBy('state_name').agg(round(avg('avgtemperature'), 2).alias('avg_temperature'), count('*').alias('count')).orderBy(desc('count')).show(10)   
+    
+
+def get_number_of_arrivals_in_top_5_warmest_states(spark, fact_visit_table, dim_port_table):
+    """
+    This function:
+        Get number of arrival in top 5 warmest states
+    Paramters:
+        spark (object) - Spark session
+        fact_visit_table (string) - fact table containing visits
+        dim_port_table (string) - dimension table containing US ports
+    """
+    
+    print('\nGet number of arrival in top 5 warmest states\n')
+    
+    #load necessary data
+    df_read_visits = spark.read.parquet(os.path.join(output_data, fact_visit_table))
+    df_read_ports = spark.read.parquet(os.path.join(output_data, dim_port_table))
+    
+    #join dataframe by port code
+    df_query = df_read_visits.join(df_read_ports, df_read_visits.i94port == df_read_ports.code, how='inner').drop(df_read_ports.code)
+    
+    #get top 5 desc
+    df_query.groupBy('state_name').agg(round(avg('avgtemperature'), 2).alias('avg_temperature'), count('*').alias('count')).orderBy(desc('avg_temperature')).show(5)     
+    
+    
+def get_top_10_warmest_cities(spark, fact_visit_table, dim_port_table, state_code):
+    """
+    This function:
+        Get top 10 warmest cities in state with number of arrivals
+    Paramters:
+        spark (object) - Spark session
+        fact_visit_table (string) - fact table containing visits
+        dim_port_table (string) - dimension table containing US ports
+        state_code (string) - state code
+    """
+    
+    print('\nGet top 10 warmest cities in state with number of arrivals\n')
+    
+    #load necessary data
+    df_read_visits = spark.read.parquet(os.path.join(output_data, fact_visit_table))
+    df_read_ports = spark.read.parquet(os.path.join(output_data, dim_port_table))
+    
+    #join dataframe by port code
+    df_query = df_read_visits.join(df_read_ports, df_read_visits.i94port == df_read_ports.code, how='inner').drop(df_read_ports.code)
+    
+    #get top 10 desc
+    df_query.filter(df_query.state == state_code).groupBy('city').agg(round(avg('avgtemperature'), 2).alias('avg_temperature'), count('*').alias('count')).orderBy(desc('count')).show(5)
+
+    
         
 def main():
     """
@@ -500,6 +571,20 @@ def main():
     check_row_count(spark, 'dim_us_ports')
     
     #quality checks - end
+    
+    
+    #sample queries - run 
+    
+    #get average temperature in top 10 states ordered by number od arrivals descending
+    get_top_10_warmest_states(spark, 'fact_i94_visits', 'dim_us_ports')
+    
+    #get number of arrival in top 5 warmest states
+    get_number_of_arrivals_in_top_5_warmest_states(spark, 'fact_i94_visits', 'dim_us_ports')
+    
+    #get top 10 warmest cities in State of California with number of arrivals
+    get_top_10_warmest_cities(spark, 'fact_i94_visits', 'dim_us_ports', 'CA')
+    
+    #sample queries - end
     
     #end spark session
     spark.stop()
